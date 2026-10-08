@@ -2,6 +2,8 @@
 
 A quiet digital origami experience. Choose paper, make twelve guided folds, give your crane a wish, and collect a thousand little moments of care.
 
+[Live website](https://paper-crane-roan.vercel.app) · [Private GitHub repository](https://github.com/Fuzuto/paper-crane)
+
 ## Run locally
 
 Use Node.js 22 LTS and pnpm 11.25.0 (pinned in `package.json`).
@@ -18,6 +20,8 @@ Open http://localhost:3000. `pnpm build` creates a fully static site in `out/`, 
 Import this private GitHub repository into Vercel using the Next.js preset. The checked-in `vercel.json` builds with `pnpm build`; Vercel reads the `.next/` build metadata to publish the static site. The build also creates `out/` for other static hosts. Enable Corepack with the build environment variable `ENABLE_EXPERIMENTAL_COREPACK=1` so Vercel uses the pinned pnpm version. No application secrets or runtime environment variables are required.
 
 The `.vercel/` project link and local credentials stay outside Git; `.vercelignore` also excludes local dependencies, test artifacts, and build caches from source uploads.
+
+This repository is connected to the `paper-crane` Vercel project. Pushes to `main` automatically deploy to the live website; Vercel keeps generated preview URLs protected.
 
 Browser checks: `pnpm test:browser` exercises the real journey in temporary contexts, `pnpm test:visual` captures three screen sizes, and `pnpm check:performance` runs Lighthouse against a production preview at port 3001. These tools use installed Edge on Windows or a Playwright Chromium installation (`pnpm exec playwright install chromium`) elsewhere. `QA_URL`, `AUDIT_URL`, and `EDGE_PATH` can override the defaults. Reports are written to the ignored `artifacts/` folder. Automated accessibility checks complement manual keyboard testing; they do not certify screen reader compatibility.
 
