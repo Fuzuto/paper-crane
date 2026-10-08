@@ -15,7 +15,7 @@ Open http://localhost:3000. `pnpm build` creates a fully static site in `out/`, 
 
 ## Deploy on Vercel
 
-Import this private GitHub repository into Vercel using the Next.js preset. The checked-in `vercel.json` builds with `pnpm build` and publishes `out/`. Enable Corepack with the build environment variable `ENABLE_EXPERIMENTAL_COREPACK=1` so Vercel uses the pinned pnpm version. No application secrets or runtime environment variables are required.
+Import this private GitHub repository into Vercel using the Next.js preset. The checked-in `vercel.json` builds with `pnpm build`; Vercel reads the `.next/` build metadata to publish the static site. The build also creates `out/` for other static hosts. Enable Corepack with the build environment variable `ENABLE_EXPERIMENTAL_COREPACK=1` so Vercel uses the pinned pnpm version. No application secrets or runtime environment variables are required.
 
 The `.vercel/` project link and local credentials stay outside Git; `.vercelignore` also excludes local dependencies, test artifacts, and build caches from source uploads.
 
