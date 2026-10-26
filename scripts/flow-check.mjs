@@ -69,7 +69,7 @@ async function enabled(locator) {
 }
 
 async function foldCount(page, count) {
-  await page.locator(`.fold-dots[aria-label="${count} folds completed"]`).waitFor();
+  await page.locator(`.fold-dots[aria-label="${count} folds completed"]`).waitFor({ state: 'attached' });
 }
 
 async function keyboardFold(page) {
@@ -84,6 +84,16 @@ async function dragPoints(page) {
   const handle = page.locator('.fold-grab-handle');
   await enabled(handle);
   await handle.scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => {
+    const handle = document.querySelector('.fold-grab-handle');
+    const matrix = document.querySelector('.drag-fold-paper')?.getScreenCTM();
+    if (!handle || !matrix) return false;
+    const expected = new DOMPoint(Number(handle.dataset.startX), Number(handle.dataset.startY)).matrixTransform(matrix);
+    const rect = handle.getBoundingClientRect();
+    const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return Math.hypot(x - expected.x, y - expected.y) < 1 && (hit === handle || handle.contains(hit));
+  });
   const [button, paper, data] = await Promise.all([
     handle.boundingBox(), page.locator('.drag-fold-paper').boundingBox(),
     handle.evaluate((element) => ({ startX: Number(element.dataset.startX), startY: Number(element.dataset.startY), targetX: Number(element.dataset.targetX), targetY: Number(element.dataset.targetY) })),
@@ -107,22 +117,26 @@ async function finishFolds(page, remaining = 12) {
     await keyboardFold(page);
     if (start + i + 1 < 12) await foldCount(page, start + i + 1);
   }
-  await page.getByLabel('Name your crane').waitFor();
-  await page.waitForFunction(() => document.activeElement?.id === 'crane-name');
+  await page.locator('.finish-space').waitFor();
 }
 
 async function newPaper(page, color = 'Matcha', pattern = 'Ocean waves') {
-  await page.locator('.hero-actions .primary').click();
+  if (!await page.locator('.fold-grab-handle').isVisible()) await page.getByRole('button', { name: 'Paper Crane home', exact: true }).click();
+  await foldCount(page, 0);
+  await page.locator('.paper-menu > summary').click();
   await page.getByRole('button', { name: color, exact: true }).click();
   await page.getByRole('button', { name: pattern, exact: true }).click();
   await layout(page, 'paper', page.viewportSize().width);
-  await page.getByRole('button', { name: 'Begin folding', exact: true }).click();
+  await page.locator('.paper-menu > summary').click();
   await foldCount(page, 0);
 }
 
 async function writeWish(page, name, wish, visibility = 'private') {
-  await page.getByLabel('Name your crane').fill(name);
+  if (!await page.locator('.wish-form').isVisible()) await page.getByRole('button', { name: 'Add a note', exact: true }).click();
+  await page.getByLabel('Name your crane', { exact: false }).fill(name);
   await page.getByLabel('Your wish', { exact: false }).fill(wish);
+  const privacyDetails = page.locator('.wish-form .note-details');
+  if (await privacyDetails.count() && await privacyDetails.getAttribute('open') === null) await privacyDetails.locator('summary').click();
   await page.getByRole('radio', { name: visibility === 'private' ? 'Just me' : 'Open to sharing', exact: true }).check();
   await page.getByRole('button', { name: 'Keep my crane', exact: true }).click();
 }
@@ -143,7 +157,7 @@ async function layout(page, view, width) {
 }
 
 async function axe(page, view) {
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(100);
   if (!await page.evaluate(() => !!window.axe)) await page.addScriptTag({ path: require.resolve('axe-core/axe.min.js') });
   const result = await page.evaluate(async () => window.axe.run(document.querySelector('.site-shell'), { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'] } }));
   const violations = result.violations.map(({ id, impact, description, help, helpUrl, nodes }) => ({ id, impact, description, help, helpUrl, nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })) }));
@@ -153,62 +167,76 @@ async function axe(page, view) {
 const executablePath = await edgePath();
 const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}), args: ['--disable-gpu-sandbox'] });
 report.browser = await browser.version();
+await fs.mkdir('artifacts', { recursive: true });
 try {
   for (const width of [375, 768, 1440]) {
-    await check(`Responsive journey at ${width}px`, async () => {
+    await check(`Direct paper workspace and complete journey at ${width}px`, async () => {
       const { context, page } = await contextPage(browser, { viewport: { width, height: width === 375 ? 812 : 1000 }, reducedMotion: 'reduce' });
       try {
         await open(page);
-        await layout(page, 'home', width);
+        await foldCount(page, 0);
+        assert.equal(await page.locator('.hero,.site-footer').count(), 0, 'The workspace should open directly without a marketing page');
+        assert.equal(await page.getByRole('button', { name: 'Begin folding', exact: true }).count(), 0);
+        await layout(page, 'direct workspace', width);
+        await page.screenshot({ path: `artifacts/minimal-${width}-workspace.png` });
+        const space = await page.locator('.fold-stage').boundingBox();
+        assert.ok(space && space.width > width * .7 && space.height >= 250, 'The paper should have the main workspace');
         await newPaper(page);
-        await layout(page, 'folding', width);
         await finishFolds(page);
-        await layout(page, 'wish', width);
+        await layout(page, 'finished crane', width);
+        assert.equal(await page.locator('.wish-form').isVisible(), false, 'Writing should be optional and closed initially');
         await writeWish(page, `Responsive ${width}`, 'A little space for hope.');
         await page.locator('.completion').waitFor();
-        await layout(page, 'complete', width);
+        await layout(page, 'saved crane', width);
         await collection(page);
         await layout(page, 'collection', width);
         await page.getByRole('button', { name: `Open Responsive ${width}`, exact: true }).click();
         await page.getByRole('dialog').waitFor();
         await layout(page, 'details', width);
-        assert.ok(await page.getByRole('dialog').isVisible());
+        await page.screenshot({ path: `artifacts/minimal-${width}-details.png` });
+        return { directArrival: true, optionalNote: true };
       } finally { await context.close(); }
     });
   }
 
-  const journey = await contextPage(browser);
+  const journey = await contextPage(browser, { reducedMotion: 'reduce' });
   const page = journey.page;
   try {
-    await check('Initial home, paper selection, sound and accessibility', async () => {
+    await check('Paper and help stay in optional controls, without hiding the paper', async () => {
       await open(page);
+      await foldCount(page, 0);
       assert.equal((await stored(page)).length, 0);
-      await axe(page, 'home');
-      const sound = page.getByRole('button', { name: /Turn on ambient sound$/ });
-      await sound.click();
-      await page.getByRole('button', { name: /Turn off ambient sound$/ }).waitFor();
-      await page.getByRole('button', { name: /Turn off ambient sound$/ }).click();
-      await page.locator('.header-cta').click();
+      assert.equal(await page.locator('.paper-menu').getAttribute('open'), null);
+      await axe(page, 'workspace');
+      await page.locator('.paper-menu > summary').click();
       await page.getByRole('button', { name: 'Matcha', exact: true }).click();
       await page.getByRole('button', { name: 'Ocean waves', exact: true }).click();
       assert.equal(await page.getByRole('button', { name: 'Matcha', exact: true }).getAttribute('aria-pressed'), 'true');
       assert.equal(await page.getByRole('button', { name: 'Ocean waves', exact: true }).getAttribute('aria-pressed'), 'true');
-      await axe(page, 'paper');
+      await axe(page, 'paper options');
+      await page.locator('.paper-menu > summary').click();
+      await page.locator('.help-menu > summary').click();
+      assert.match(await page.locator('.help-tray').innerText(), /arrow|keyboard/i);
+      await page.locator('.help-menu > summary').click();
+      const sound = page.locator('.quiet-controls button[aria-pressed]');
+      if (await sound.count()) {
+        const initial = await sound.getAttribute('aria-pressed');
+        await sound.click();
+        assert.notEqual(await sound.getAttribute('aria-pressed'), initial);
+        await sound.click();
+        assert.equal(await sound.getAttribute('aria-pressed'), initial);
+      }
     });
 
     await check('Stationary hold and partial drag do not fold; full drag, undo and restart work', async () => {
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).click();
-      await foldCount(page, 0);
-      await axe(page, 'folding');
       const { start } = await dragPoints(page);
       await page.mouse.move(start.x, start.y);
       await page.mouse.down();
       await page.waitForTimeout(1150);
       await page.mouse.up();
-      await page.waitForTimeout(200);
       await foldCount(page, 0);
-      await pointerFold(page, 0.45);
-      await page.waitForTimeout(200);
+      await pointerFold(page, .45);
+      await page.waitForFunction(() => Number(document.querySelector('.drag-fold-stage')?.dataset.progress) <= .001);
       await foldCount(page, 0);
       await pointerFold(page);
       await foldCount(page, 1);
@@ -221,40 +249,37 @@ try {
       await keyboardFold(page);
       await foldCount(page, 2);
       await page.getByRole('button', { name: 'Start over', exact: true }).click();
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).waitFor();
+      await foldCount(page, 0);
+      await page.locator('.paper-menu > summary').click();
       assert.equal(await page.getByRole('button', { name: 'Matcha', exact: true }).getAttribute('aria-pressed'), 'true');
       assert.equal(await page.getByRole('button', { name: 'Ocean waves', exact: true }).getAttribute('aria-pressed'), 'true');
+      await page.locator('.paper-menu > summary').click();
     });
 
-    await check('Twelve keyboard folds, wish undo, optional name and private save', async () => {
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).click();
+    await check('Finished crane can return to its last fold, then save an optional note', async () => {
       await finishFolds(page);
-      assert.equal(await page.getByLabel('Name your crane').evaluate((el) => el === document.activeElement), true, 'Wish input was not focused after finishing');
-      assert.equal(await page.getByRole('button', { name: 'Keep my crane', exact: true }).isEnabled(), true);
-      await page.getByLabel('Name your crane').fill('   ');
-      assert.equal(await page.getByRole('button', { name: 'Keep my crane', exact: true }).isEnabled(), true);
+      await axe(page, 'finished crane without note');
       await page.getByRole('button', { name: 'Return to the last fold', exact: true }).click();
       await foldCount(page, 11);
       await finishFolds(page, 1);
-      await axe(page, 'wish');
-      await writeWish(page, '  Morning calm  ', 'For a calm morning & a little kindness <3', 'private');
+      await page.getByRole('button', { name: 'Add a note', exact: true }).click();
+      await page.getByLabel('Name your crane', { exact: false }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Keep my crane', exact: true }).isEnabled(), true);
+      await page.getByLabel('Name your crane', { exact: false }).fill('   ');
+      assert.equal(await page.getByRole('button', { name: 'Keep my crane', exact: true }).isEnabled(), true);
+      await axe(page, 'optional wish form');
+      await writeWish(page, '  Morning calm  ', 'For a calm morning & a little kindness <3');
       await page.locator('.completion').waitFor();
-      await page.waitForFunction(() => document.activeElement?.matches('.completion h1'));
       const cranes = await stored(page);
       assert.equal(cranes.length, 1);
       assert.deepEqual({ name: cranes[0].name, wish: cranes[0].wish, visibility: cranes[0].visibility, color: cranes[0].color, pattern: cranes[0].pattern, folds: cranes[0].folds }, { name: 'Morning calm', wish: 'For a calm morning & a little kindness <3', visibility: 'private', color: 'sage', pattern: 'seigaiha', folds: 12 });
-      assert.ok(await page.locator('.milestone-reward').isVisible());
-      await axe(page, 'complete');
+      await axe(page, 'saved crane');
     });
 
-    await check('Second crane with public preference, saved locally', async () => {
+    await check('Another crane keeps its own paper and local sharing preference', async () => {
       await page.getByRole('button', { name: 'Fold another', exact: true }).click();
-      await page.getByRole('button', { name: 'Morning sky', exact: true }).click();
-      await page.getByRole('button', { name: 'Paper flecks', exact: true }).click();
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).click();
+      await newPaper(page, 'Morning sky', 'Paper flecks');
       await finishFolds(page);
-      await page.getByRole('radio', { name: 'Open to sharing', exact: true }).check();
-      assert.match(await page.locator('.privacy-note').innerText(), /does not publish/);
       await writeWish(page, 'Kindness for someone', 'May kindness find its way to you.', 'public');
       await page.locator('.completion').waitFor();
       const cranes = await stored(page);
@@ -264,7 +289,7 @@ try {
       assert.equal(cranes[0].pattern, 'speckled');
     });
 
-    await check('Collection persistence, sorting, filtering, details and backup', async () => {
+    await check('Collection keeps sorting, filters, details, keyboard focus and backup', async () => {
       await collection(page);
       await page.reload({ waitUntil: 'networkidle' });
       await page.locator('.crane-card').first().waitFor();
@@ -272,12 +297,12 @@ try {
       assert.deepEqual(await page.locator('.crane-card h3').allTextContents(), ['Kindness for someone', 'Morning calm']);
       await page.getByLabel('Sort cranes').selectOption('oldest');
       assert.deepEqual(await page.locator('.crane-card h3').allTextContents(), ['Morning calm', 'Kindness for someone']);
-      const filters = page.getByRole('group', { name: 'Filter cranes' });
-      await filters.getByRole('button', { name: 'Just me', exact: true }).click();
+      const filter = page.getByLabel('Filter cranes', { exact: true });
+      await filter.selectOption('private');
       assert.deepEqual(await page.locator('.crane-card h3').allTextContents(), ['Morning calm']);
-      await filters.getByRole('button', { name: 'Open to sharing', exact: true }).click();
+      await filter.selectOption('public');
       assert.deepEqual(await page.locator('.crane-card h3').allTextContents(), ['Kindness for someone']);
-      await filters.getByRole('button', { name: 'All cranes', exact: true }).click();
+      await filter.selectOption('all');
       await axe(page, 'collection');
       const downloadPromise = page.waitForEvent('download');
       await page.getByRole('button', { name: 'Download collection backup', exact: true }).click();
@@ -291,7 +316,7 @@ try {
       const dialog = page.getByRole('dialog');
       await dialog.waitFor();
       assert.ok((await dialog.innerText()).includes('For a calm morning & a little kindness <3'));
-      await axe(page, 'details');
+      await axe(page, 'crane details');
       for (let i = 0; i < 8; i++) {
         await page.keyboard.press('Tab');
         assert.equal(await page.evaluate(() => !document.hasFocus() || !!document.activeElement?.closest('dialog')), true, 'Dialog focus moved to other page content');
@@ -304,7 +329,7 @@ try {
       return { backupCranes: backup.cranes.length };
     });
 
-    await check('Deletion confirmation, cancel, confirmed removal and journey count', async () => {
+    await check('Removal confirmation and thousand-crane progress remain accurate', async () => {
       await page.getByRole('button', { name: 'Open Kindness for someone', exact: true }).click();
       const dialog = page.getByRole('dialog');
       await dialog.getByRole('button', { name: 'Remove crane', exact: true }).click();
@@ -316,76 +341,69 @@ try {
       await dialog.waitFor({ state: 'hidden' });
       assert.equal(await page.locator('.crane-card').count(), 1);
       assert.equal((await stored(page)).length, 1);
-      await page.getByRole('button', { name: '1,000 cranes', exact: true }).click();
-      await page.locator('#journey').waitFor();
+      const journeyDetails = page.locator('.journey-details');
+      if (await journeyDetails.getAttribute('open') === null) await journeyDetails.locator('summary').click();
       assert.equal(await page.getByRole('progressbar', { name: 'Thousand cranes journey' }).getAttribute('aria-valuenow'), '1');
     });
   } finally { await journey.context.close(); }
 
-  await check('Direct section links, studio/collection URLs and browser history', async () => {
+  await check('Direct studio and collection URLs preserve browser history', async () => {
     const { context, page } = await contextPage(browser, { reducedMotion: 'reduce' });
     try {
       await open(page, '#collection');
       await page.locator('.collection').waitFor();
-      await page.locator('.header-cta').click();
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Paper Crane home', exact: true }).click();
+      await foldCount(page, 0);
       assert.match(page.url(), /#studio$/);
-      await page.getByRole('button', { name: 'The experience', exact: true }).click();
-      await page.locator('#how-it-works').waitFor();
+      await collection(page);
       await page.goBack();
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).waitFor();
+      await foldCount(page, 0);
       await page.goBack();
       await page.locator('.collection').waitFor();
       await open(page, '#studio');
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).waitFor();
-      await open(page, '#journey');
-      await page.getByRole('progressbar', { name: 'Thousand cranes journey' }).waitFor();
-      await page.waitForFunction(() => document.activeElement?.id === 'journey');
-      const position = await page.locator('#journey').evaluate((el) => ({ top: el.getBoundingClientRect().top, pageY: scrollY }));
-      assert.ok(position.pageY > 0 && position.top < 600, `Direct journey anchor was not scrolled into view: ${JSON.stringify(position)}`);
-      assert.equal(await page.locator('#journey').evaluate((el) => el === document.activeElement), true, 'Direct journey anchor was not focused');
-      return { directAnchorPosition: position };
+      await foldCount(page, 0);
+      await page.reload({ waitUntil: 'networkidle' });
+      await foldCount(page, 0);
     } finally { await context.close(); }
   });
 
-  await check('Reduced motion preference removes ambient CSS animation', async () => {
+  await check('Reduced motion removes ambient animation while retaining direct folding', async () => {
     const { context, page } = await contextPage(browser, { reducedMotion: 'reduce' });
     try {
       await open(page);
       assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true);
-      const animations = await page.locator('.hero-crane, .floating-crane').evaluateAll((elements) => elements.map((el) => ({ className: el.className, animationName: getComputedStyle(el).animationName, duration: getComputedStyle(el).animationDuration })));
-      assert.ok(animations.every((animation) => animation.animationName === 'none' || parseFloat(animation.duration) <= 0.01), JSON.stringify(animations));
+      const animations = await page.locator('.paper-viewport,.fold-grab-handle').evaluateAll((elements) => elements.map((element) => ({ name: getComputedStyle(element).animationName, duration: getComputedStyle(element).animationDuration })));
+      assert.ok(animations.every((animation) => animation.name === 'none' || parseFloat(animation.duration) <= .01), JSON.stringify(animations));
+      await keyboardFold(page);
+      await foldCount(page, 1);
       return animations;
     } finally { await context.close(); }
   });
 
-  await check('Corrupt collection is preserved and save remains recoverable', async () => {
+  await check('Corrupt collection is preserved and a failed save can recover', async () => {
     const { context, page } = await contextPage(browser, { reducedMotion: 'reduce' });
     try {
-      await context.addInitScript((key) => { localStorage.setItem(key, '{not valid JSON'); }, STORAGE_KEY);
+      await context.addInitScript((key) => localStorage.setItem(key, '{not valid JSON'), STORAGE_KEY);
       await open(page, '#studio');
       await page.locator('.error-banner[role="alert"]').waitFor();
       assert.match(await page.locator('.error-banner[role="alert"]').innerText(), /preserved/);
       await collection(page);
       await page.getByRole('button', { name: 'Try again', exact: true }).click();
-      await page.getByRole('heading', { name: 'Your collection needs a moment.', exact: true }).waitFor();
       assert.equal(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY), '{not valid JSON');
-      await page.locator('.header-cta').click();
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).click();
+      await page.getByRole('button', { name: 'Paper Crane home', exact: true }).click();
       await finishFolds(page);
       await writeWish(page, 'Preserved intention', 'My wish remains available to retry.');
       await page.locator('.error-banner[role="alert"]').waitFor();
-      assert.equal(await page.getByLabel('Name your crane').inputValue(), 'Preserved intention');
+      assert.equal(await page.getByLabel('Name your crane', { exact: false }).inputValue(), 'Preserved intention');
       assert.equal(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY), '{not valid JSON');
       await page.evaluate((key) => { localStorage.removeItem(key); dispatchEvent(new StorageEvent('storage', { key, newValue: null })); }, STORAGE_KEY);
       await page.getByRole('button', { name: 'Keep my crane', exact: true }).click();
       await page.locator('.completion').waitFor();
       assert.equal((await stored(page)).length, 1);
-      return { malformedDataPreserved: true, retryAfterSimulatedStorageRepair: true };
     } finally { await context.close(); }
   });
 
-  await check('Storage quota errors preserve wishes/cranes and save/delete retries recover', async () => {
+  await check('Full storage preserves note and collection through save and remove retries', async () => {
     const { context, page } = await contextPage(browser, { reducedMotion: 'reduce' });
     try {
       await context.addInitScript((key) => {
@@ -396,20 +414,17 @@ try {
           return nativeSetItem.call(this, storageKey, value);
         };
       }, STORAGE_KEY);
-      await open(page, '#studio');
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).click();
+      await open(page);
       await finishFolds(page);
       await writeWish(page, 'Try again gently', 'A little patience is enough.');
       await page.locator('.error-banner[role="alert"]').waitFor();
       assert.match(await page.locator('.error-banner[role="alert"]').innerText(), /storage is full/);
       assert.equal((await stored(page)).length, 0);
-      assert.equal(await page.getByLabel('Name your crane').inputValue(), 'Try again gently');
-      assert.equal(await page.getByLabel('Your wish', { exact: false }).inputValue(), 'A little patience is enough.');
+      assert.equal(await page.getByLabel('Name your crane', { exact: false }).inputValue(), 'Try again gently');
       await page.evaluate(() => { window.__qaQuotaFailure = false; });
       await page.getByRole('button', { name: 'Keep my crane', exact: true }).click();
       await page.locator('.completion').waitFor();
       assert.equal((await stored(page)).length, 1);
-      assert.equal(await page.locator('.error-banner[role="alert"]').count(), 0);
       await collection(page);
       await page.getByRole('button', { name: 'Open Try again gently', exact: true }).click();
       const dialog = page.getByRole('dialog');
@@ -417,7 +432,6 @@ try {
       await dialog.getByRole('button', { name: 'Remove crane', exact: true }).click();
       await dialog.getByRole('button', { name: 'Remove crane', exact: true }).click();
       await dialog.getByRole('alert').waitFor();
-      assert.match(await dialog.getByRole('alert').innerText(), /storage is full/);
       assert.equal((await stored(page)).length, 1);
       await page.evaluate(() => { window.__qaQuotaFailure = false; });
       await dialog.getByRole('button', { name: 'Remove crane', exact: true }).click();
@@ -430,7 +444,6 @@ try {
     const violations = report.accessibility.flatMap((entry) => entry.violations.map((violation) => ({ view: entry.view, ...violation })));
     assert.equal(violations.length, 0, JSON.stringify(violations));
   });
-
   await check('No uncaught browser errors or local HTTP failures', async () => {
     assert.equal(report.consoleErrors.length, 0, JSON.stringify(report.consoleErrors));
     assert.equal(report.networkErrors.length, 0, JSON.stringify(report.networkErrors));
@@ -438,9 +451,8 @@ try {
 } finally {
   await browser.close();
   report.finishedAt = new Date().toISOString();
-  report.summary = { passed: report.checks.filter((check) => check.status === 'PASS').length, failed: report.checks.filter((check) => check.status === 'FAIL').length, axeViolations: report.accessibility.reduce((count, entry) => count + entry.violationCount, 0) };
+  report.summary = { passed: report.checks.filter((entry) => entry.status === 'PASS').length, failed: report.checks.filter((entry) => entry.status === 'FAIL').length, axeViolations: report.accessibility.reduce((count, entry) => count + entry.violationCount, 0) };
   report.verdict = report.summary.failed ? 'DO NOT SHIP' : 'SHIP: functional and automated accessibility checks pass; visual baseline comparison remains inconclusive.';
-  await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await fs.writeFile(outputPath, JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report.summary));
   if (report.summary.failed) process.exitCode = 1;

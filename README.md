@@ -1,6 +1,6 @@
 # Paper Crane
 
-A quiet digital origami experience. Choose paper, make twelve guided folds, give your crane a wish, and collect a thousand little moments of care.
+A quiet space with you and a sheet of paper. Open the site and start folding.
 
 [Live website](https://paper-crane-roan.vercel.app) · [Private GitHub repository](https://github.com/Fuzuto/paper-crane)
 
@@ -27,12 +27,13 @@ Browser checks: `pnpm test:browser` exercises the real journey in temporary cont
 
 ## The experience
 
-- A faceted origami crane with soft lighting, gentle pointer movement, and an immediate SVG fallback.
-- Six paper colors and three patterns.
-- Twelve guided stages. Grab the marked paper corner with a mouse or touch, drag it to the ring, and release to crease. The paper flap bends with your movement; incomplete folds return gently. Keyboard users move the corner with arrow keys and crease with Enter after reaching the ring. Undo a fold or return to paper selection.
-- An optional crane name and wish, plus a private or open-to-sharing preference. “Keep for later” saves immediately with a paper-color name when blank.
+- A full-screen paper workspace opens directly, with one short instruction for the current fold.
+- Six paper colors and three patterns in the Paper menu; choices are available before the first crease. Start over for a new sheet.
+- Twelve guided stages. Grab the marked paper corner with a mouse or touch, drag it to the ring, and release to crease. The paper flap bends with your movement; incomplete folds return gently. Keyboard users move the corner with arrow keys and crease with Enter after reaching the ring. Undo and folding help stay close to the paper.
+- Save a completed crane immediately with “Keep for later,” or open “Add a note” for an optional name, wish, and privacy preference. Names and wishes can also be edited later.
+- A faceted completed crane with soft lighting, gentle pointer movement, and an immediate SVG fallback.
 - A local collection with editable names and wishes, detail views, visibility filters, sorting, removal, and a downloadable JSON copy.
-- A thousand-crane journey with milestones at 1, 10, 100, and 1,000 creations.
+- A thousand-crane journey tucked into the collection, with milestones at 1, 10, 100, and 1,000 creations.
 - Optional synthesized ambient wind. All animation respects reduced-motion settings.
 
 The folding illustrations are a guided visual prototype, grouping traditional folds into twelve stages. Selected flaps rotate about their crease while the pointer follows a defined fold path. This is not a full physical paper simulation. Pointer and keyboard movement use the same validated gesture and fold reducer; future geometry can extend the independent gesture definitions.

@@ -50,12 +50,11 @@ async function fresh(browser, options = {}) {
 
 async function studio(page) {
   await page.goto(`${BASE_URL}/#studio`, { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: 'Begin folding', exact: true }).click();
   await foldCount(page, 0);
 }
 
 async function foldCount(page, count) {
-  await page.locator(`.fold-dots[aria-label="${count} folds completed"]`).waitFor();
+  await page.locator(`.fold-dots[aria-label="${count} folds completed"]`).waitFor({ state: 'attached' });
 }
 
 async function points(page) {
@@ -63,6 +62,17 @@ async function points(page) {
   await handle.waitFor({ state: 'visible' });
   await page.waitForFunction(() => { const handle = document.querySelector('.fold-grab-handle'); return handle && !handle.disabled && handle.getAttribute('aria-disabled') !== 'true'; });
   await handle.scrollIntoViewIfNeeded();
+  // Native coordinate gestures must wait for Motion to paint the new fold's corner.
+  await page.waitForFunction(() => {
+    const handle = document.querySelector('.fold-grab-handle');
+    const matrix = document.querySelector('.drag-fold-paper')?.getScreenCTM();
+    if (!handle || !matrix) return false;
+    const expected = new DOMPoint(Number(handle.dataset.startX), Number(handle.dataset.startY)).matrixTransform(matrix);
+    const rect = handle.getBoundingClientRect();
+    const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    return Math.hypot(x - expected.x, y - expected.y) < 1 && (hit === handle || handle.contains(hit));
+  });
   const [button, paper, data] = await Promise.all([
     handle.boundingBox(), page.locator('.drag-fold-paper').boundingBox(),
     handle.evaluate((element) => ({ startX: Number(element.dataset.startX), startY: Number(element.dataset.startY), targetX: Number(element.dataset.targetX), targetY: Number(element.dataset.targetY) })),
@@ -122,6 +132,11 @@ async function keyboardFinish(page, from = 0) {
     await handle.press('Enter');
     if (step < 11) await foldCount(page, step + 1);
   }
+  await page.locator('.finish-space').waitFor();
+}
+
+async function noteForm(page) {
+  if (!await page.locator('.wish-form').isVisible()) await page.getByRole('button', { name: 'Add a note', exact: true }).click();
   await page.getByLabel('Name your crane', { exact: false }).waitFor();
 }
 
@@ -151,7 +166,7 @@ try {
           report.gestures.push({ width, input, step: step + 1, midpoint, start: [data.startX, data.startY], target: [data.targetX, data.targetY] });
           if (step < 11) await foldCount(page, step + 1);
         }
-        await page.getByLabel('Name your crane', { exact: false }).waitFor();
+        await page.locator('.finish-space').waitFor();
         await assertLayout(page, 'wish');
         await page.getByRole('button', { name: 'Keep for later', exact: true }).click();
         await page.locator('.completion').waitFor();
@@ -199,7 +214,7 @@ try {
       await foldCount(page, 0);
       await resetProgress(page);
       await page.getByRole('button', { name: 'Start over', exact: true }).click();
-      await page.getByRole('button', { name: 'Begin folding', exact: true }).waitFor();
+      await foldCount(page, 0);
       return { stationaryHoldMs: 1300, readyHoldMs: 1100, undoAndRestart: true };
     } finally { await context.close(); }
   });
@@ -264,7 +279,7 @@ try {
       let cranes = await stored(page);
       assert.equal(cranes.length, 1);
       const original = cranes[0];
-      assert.equal(original.name, 'Sakura crane');
+      assert.equal(original.name, 'Rice paper crane');
       assert.equal(original.wish, '');
       assert.equal(original.visibility, 'private');
       await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: /^My collection/ }).click();
@@ -309,13 +324,14 @@ try {
     try {
       await studio(page);
       await keyboardFinish(page);
+      await noteForm(page);
       await page.getByLabel('Name your crane', { exact: false }).fill('   ');
       await page.getByRole('button', { name: 'Keep my crane', exact: true }).click();
       await page.locator('.completion').waitFor();
       const original = (await stored(page))[0];
-      assert.equal(original.name, 'Sakura crane');
+      assert.equal(original.name, 'Rice paper crane');
       await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: /^My collection/ }).click();
-      await page.getByRole('button', { name: 'Open Sakura crane', exact: true }).click();
+      await page.getByRole('button', { name: 'Open Rice paper crane', exact: true }).click();
       const dialog = page.getByRole('dialog');
       await dialog.getByRole('button', { name: 'Add a wish', exact: true }).click();
       await dialog.getByLabel('Name your crane', { exact: false }).fill('A patient wish');

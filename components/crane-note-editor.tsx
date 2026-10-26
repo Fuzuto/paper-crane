@@ -34,8 +34,7 @@ export default function CraneNoteEditor({ crane, onSave, onCancel, error }: Cran
 
   return (
     <form className="note-editor" onSubmit={save} aria-label="Edit crane name and wish">
-      <h3 className="note-editor-title">A name. A wish. In your own time.</h3>
-      <p className="note-editor-intro">Add a little meaning whenever you’re ready.</p>
+      <h3 className="note-editor-title">Edit details</h3>
 
       <label className="field-label" htmlFor={`${id}-name`}>Name your crane <span>(optional)</span></label>
       <input

@@ -2,7 +2,6 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { animate, motion, useMotionValue, useTransform, type MotionStyle } from "motion/react";
-import { HandGrabbing } from "@phosphor-icons/react";
 import { FOLD_GESTURES, sampleFoldGesture, type FoldPoint } from "@/lib/fold-gestures";
 import { useReducedMotionPreference } from "@/lib/motion-preference";
 
@@ -130,7 +129,6 @@ export default function DragFoldPaper({ step, color, pattern, disabled, onFold }
   }
 
   return <div ref={stage} className="drag-fold-stage" data-step={step} data-progress="0">
-    <p className={`drag-fold-caption${feedback === "ready" ? " is-ready" : ""}`} aria-hidden="true">{disabled ? "Crease made. Let the paper settle." : feedback === "ready" ? "Release to crease" : feedback === "returning" ? "Take your time. Try again." : "Grab the corner. Follow the thread."}</p>
     <div className="paper-viewport">
       <svg ref={svg} className="drag-fold-paper" viewBox="0 0 400 400" role="img" aria-label={`Your paper, fold ${step + 1} of 12`}>
         <defs>
@@ -152,8 +150,8 @@ export default function DragFoldPaper({ step, color, pattern, disabled, onFold }
         <motion.path d={flapPath} fill={`url(#${id}-paper)`} stroke={color} strokeWidth=".8" filter={`url(#${id}-flap-shadow)`} />
         {fill && <motion.path d={flapPath} fill={fill} />}
         <motion.path d={flapPath} fill="#fff" style={{ opacity: flapShine }} />
-        <path d={`M${gesture.crease[0].x} ${gesture.crease[0].y} L${gesture.crease[1].x} ${gesture.crease[1].y}`} stroke="#66544d" strokeWidth="1" strokeDasharray="4 5" opacity=".45" />
-        <path className="fold-drag-thread" d={`M${gesture.start.x} ${gesture.start.y} Q${(gesture.start.x + gesture.target.x) / 2 + 18} ${(gesture.start.y + gesture.target.y) / 2 - 20} ${gesture.target.x} ${gesture.target.y}`} fill="none" stroke="#786555" strokeDasharray="2 7" strokeWidth="1.2" opacity=".6" />
+        <path d={`M${gesture.crease[0].x} ${gesture.crease[0].y} L${gesture.crease[1].x} ${gesture.crease[1].y}`} stroke="#66544d" strokeWidth="1" strokeDasharray="4 5" opacity=".3" />
+        <path className="fold-drag-thread" d={`M${gesture.start.x} ${gesture.start.y} Q${(gesture.start.x + gesture.target.x) / 2 + 18} ${(gesture.start.y + gesture.target.y) / 2 - 20} ${gesture.target.x} ${gesture.target.y}`} fill="none" stroke="#786555" strokeDasharray="2 7" strokeWidth="1.2" opacity=".3" />
         <circle className={feedback === "ready" ? "fold-target is-ready" : "fold-target"} cx={gesture.target.x} cy={gesture.target.y} r="13" fill="#f7f5ef" fillOpacity=".72" stroke="#827364" strokeWidth="1" strokeDasharray="3 3" />
         <circle cx={gesture.target.x} cy={gesture.target.y} r="3" fill="#827364" />
       </svg>
@@ -174,7 +172,7 @@ export default function DragFoldPaper({ step, color, pattern, disabled, onFold }
         }} onPointerCancel={() => { if (pointer.current) returnPaper("Fold paused. Grab the corner to try again."); }}
         onLostPointerCapture={() => { if (pointer.current && !committed.current) returnPaper(); }}
         onKeyDown={keyDown} onBlur={() => { if (!pointer.current && !committed.current && progress.get() > 0) returnPaper(); }}>
-        <span><HandGrabbing size={18} aria-hidden="true" /></span>
+        <span className="fold-grab-dot" aria-hidden="true" />
       </motion.button>
     </div>
     <p className="sr-only" id={`${id}-help`}>Drag this corner to the dotted ring, then release. With a keyboard, use the arrow keys to move along the fold, Enter to crease at the ring, and Escape to return.</p>
